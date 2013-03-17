@@ -57,6 +57,115 @@ class AssetCompressShell extends Shell {
 		$this->AssetBuild->buildDynamic($viewpaths);
 	}
 
+	public function watch(){
+		$this->AssetBuild->setConfig($this->_Config);
+
+		$this->out('Scanning Files Defined in the INI File');
+		$this->hr();
+
+		$_buildFiles = array_flip( array_merge(
+			$this->_Config->targets('js'),
+			$this->_Config->targets('css')
+			) );
+
+		$buildFiles = array();
+		foreach($_buildFiles as $build => $files){
+
+			// We have to rebuild part of the isFresh scanner here
+			// Because I don't want to screw up any dependencies
+			// TODO: build into AssetCache::isFresh();
+			$ext = $this->_Config->getExt($build);
+			$files = $this->_Config->files($build);
+			$theme = $this->_Config->theme();
+			$target = $this->AssetBuild->Cacher->buildFileName($build);
+			$buildFile = $this->_Config->cachePath($ext) . $target;
+			if (!file_exists($buildFile)) {
+				return false;
+			}
+			$Scanner = new AssetScanner($this->_Config->paths($ext, $target), $theme);
+
+			$paths = array();
+			foreach($files as $file){
+				$paths[] = $path = $Scanner->find($file);
+				$directory =  dirname($path);
+
+				// Do the Magic CSS import building
+				if($ext == 'css'){
+					$handle = @fopen($path, 'rb');
+					if ($handle) {
+						while(( $line= fgets($handle)) !== false){
+							if(strpos($line, '@import') !== false && strpos($line, 'http') == false){
+
+								preg_match_all('/"(.*)"/', trim( str_replace('@import', '', $line) ), $matches);
+								if(!empty($matches[1][0])){
+									// Attach to the paths[] array
+									$importPath = realpath($directory . DS . $matches[1][0]);
+									if($importPath){
+										$paths[] = $importPath;
+									}
+
+								}
+							}
+						}
+						fclose($handle);
+					}
+				}
+			}
+			$buildFiles[ $build ] = $paths;
+
+		}
+
+		$this->out('Starting Watching of all assets');
+		$this->out('Press Ctrl-C to stop watching');
+		$this->hr();
+
+		while(true){
+			foreach($buildFiles as $build => $paths){
+				$rebuild = false;
+
+				// Get the True name, because we don't cache it
+				$ext = $this->_Config->getExt($build);
+				$files = $this->_Config->files($build);
+				$theme = $this->_Config->theme();
+				$target = $this->AssetBuild->Cacher->buildFileName($build);
+				$buildFile = $this->_Config->cachePath($ext) . $target;
+
+				$buildTime = filemtime($buildFile);
+
+				foreach($paths as $path){
+					if ($Scanner->isRemote($path)) {
+						$time = $this->getRemoteFileLastModified($path);
+					} else {
+						$time = filemtime($path);
+					}
+					if ($time === false || $time >= $buildTime) {
+						$rebuild = true;
+						break;
+					}
+				}
+
+				if($rebuild){
+					$this->AssetBuild->Cacher->setTimestamp($build, 0);
+					$name = $this->AssetBuild->Cacher->buildFileName($build);
+					try {
+						$this->out('<success>Saving file</success> for ' . $name);
+						$contents = $this->AssetBuild->Compiler->generate($build);
+						$this->AssetBuild->Cacher->write($build, $contents);
+					} catch (Exception $e) {
+						$this->err('Error: ' . $e->getMessage());
+					}
+				}
+			}
+
+			sleep(5);
+		}
+
+		$this->out('Finished Compiling');
+		$this->hr();
+
+
+	}
+
 /**
  * Clears the build directories for both CSS and JS
  *
