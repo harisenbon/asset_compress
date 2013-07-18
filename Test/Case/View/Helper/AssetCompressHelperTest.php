@@ -12,7 +12,7 @@ class AssetCompressHelperTest extends CakeTestCase {
  * start a test
  *
  * @return void
- **/
+ */
 	public function setUp() {
 		parent::setUp();
 		$this->_pluginPath = App::pluginPath('AssetCompress');
@@ -46,14 +46,16 @@ class AssetCompressHelperTest extends CakeTestCase {
  * end a test
  *
  * @return void
- **/
+ */
 	public function tearDown() {
 		parent::tearDown();
 		unset($this->Helper);
 
 		Cache::delete(AssetConfig::CACHE_BUILD_TIME_KEY, AssetConfig::CACHE_CONFIG);
 		Cache::drop(AssetConfig::CACHE_CONFIG);
+		// @codingStandardsIgnoreStart
 		@unlink(TMP . AssetConfig::BUILD_TIME_FILE);
+		// @codingStandardsIgnoreEnd
 	}
 
 /**

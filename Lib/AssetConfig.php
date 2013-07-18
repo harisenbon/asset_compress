@@ -40,6 +40,13 @@ class AssetConfig {
 	);
 
 /**
+ * The timestamp that configuration changed.
+ *
+ * @var integer
+ */
+	protected $_modifiedTime;
+
+/**
  * A hash of constants that can be expanded when reading ini files.
  *
  * @var array
@@ -65,10 +72,15 @@ class AssetConfig {
  * @param array $data Initial data set for the object.
  * @param array $additionalConstants  Additional constants that will be translated
  *    when parsing paths.
+ * @param int $modifiedTime The time configuration data changed.
  */
-	public function __construct(array $data = array(), array $additionalConstants = array()) {
+	public function __construct(array $data = array(), array $additionalConstants = array(), $modifiedTime = null) {
 		$this->_data = $data;
 		$this->constantMap = array_merge($this->constantMap, $additionalConstants);
+		if (!$modifiedTime) {
+			$modifiedTime = time();
+		}
+		$this->_modifiedTime = $modifiedTime;
 	}
 
 /**
@@ -88,15 +100,16 @@ class AssetConfig {
 			return $parsedConfig;
 		}
 
-		$contents = self::_readConfig($iniFile);
-		return self::_parseConfig($contents, $constants);
+		return self::_parseConfig($iniFile, $constants);
 	}
 
 /**
  * Clear the build timestamp file and the associated cache entry
  */
 	public static function clearBuildTimeStamp() {
+		// @codingStandardsIgnoreStart
 		@unlink(TMP . self::BUILD_TIME_FILE);
+		// @codingStandardsIgnoreEnd
 		self::clearCachedBuildTime();
 	}
 
@@ -137,6 +150,7 @@ class AssetConfig {
 		if (empty($filename) || !is_string($filename) || !file_exists($filename)) {
 			throw new RuntimeException(sprintf('Configuration file "%s" was not found.', $filename));
 		}
+
 		return parse_ini_file($filename, true);
 	}
 
@@ -144,10 +158,42 @@ class AssetConfig {
  * Transforms the config data into a more structured form
  *
  * @param array $contents Contents to build a config object from.
+ * @param array $constants Array of constants that will be mapped.
+ * @param int $modifiedTime The modified time of the config data.
  * @return AssetConfig
  */
-	protected static function _parseConfig($config, $constants) {
-		$AssetConfig = new AssetConfig(self::$_defaults, $constants);
+	protected static function _parseConfig($baseFile, $constants, $modifiedTime = null) {
+		if (!$modifiedTime && file_exists($baseFile)) {
+			$modifiedTime = filemtime($baseFile);
+		}
+
+		$AssetConfig = new AssetConfig(self::$_defaults, $constants, $modifiedTime);
+		self::_parseConfigFile($baseFile, $AssetConfig);
+
+		$plugins = CakePlugin::loaded();
+		foreach ($plugins as $plugin) {
+			if (file_exists(CakePlugin::path($plugin) . 'Config' . DS . 'asset_compress.ini')) {
+				self::_parseConfigFile(CakePlugin::path($plugin) . 'Config' . DS . 'asset_compress.ini', $AssetConfig, $plugin . '.');
+			}
+		}
+
+		if ($AssetConfig->general('cacheConfig')) {
+			Cache::write(self::CACHE_ASSET_CONFIG_KEY, $AssetConfig, self::CACHE_CONFIG);
+		}
+
+		return $AssetConfig;
+	}
+
+/**
+ * Reads a config file and applies it to the given config instance
+ *
+ * @param string $iniFile Contents to apply to the config instance.
+ * @param AssetConfig $AssetConfig The config instance instance we're applying this config file to.
+ * @param string $prefix Prefix for the target key
+ */
+	protected static function _parseConfigFile($iniFile, $AssetConfig, $prefix = '') {
+		$config = self::_readConfig($iniFile);
+
 		foreach ($config as $section => $values) {
 			if (in_array($section, self::$_extensionTypes)) {
 				// extension section, merge in the defaults.
@@ -176,14 +222,9 @@ class AssetConfig {
 				}
 
 				// must be a build target.
-				$AssetConfig->addTarget($key, $values);
+				$AssetConfig->addTarget($prefix . $key, $values);
 			}
 		}
-
-		if ($AssetConfig->general('cacheConfig')) {
-			Cache::write(self::CACHE_ASSET_CONFIG_KEY, $AssetConfig, self::CACHE_CONFIG);
-		}
-		return $AssetConfig;
 	}
 
 /**
@@ -511,6 +552,15 @@ class AssetConfig {
 	public function exists($target) {
 		$ext = $this->getExt($target);
 		return !empty($this->_data[$ext][self::TARGETS][$target]);
+	}
+
+/**
+ * Get the modified time of the config object.
+ *
+ * @return integer
+ */
+	public function modifiedTime() {
+		return $this->_modifiedTime;
 	}
 
 }
