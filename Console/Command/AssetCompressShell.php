@@ -79,9 +79,11 @@ class AssetCompressShell extends Shell {
 			$theme = $this->_Config->theme();
 			$target = $this->AssetBuild->Cacher->buildFileName($build);
 			$buildFile = $this->_Config->cachePath($ext) . $target;
-			if (!file_exists($buildFile)) {
+
+			// allow this to run if target files don't exist
+			/*if (!file_exists($buildFile)) {
 				return false;
-			}
+			}*/
 			$Scanner = new AssetScanner($this->_Config->paths($ext, $target), $theme);
 
 			$paths = array();
@@ -157,7 +159,7 @@ class AssetCompressShell extends Shell {
 				}
 			}
 
-			sleep(5);
+			sleep(2);
 		}
 
 		$this->out('Finished Compiling');
