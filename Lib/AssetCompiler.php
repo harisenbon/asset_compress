@@ -63,14 +63,58 @@ class AssetCompiler {
  */
 	public function getLastModified($build) {
 		$time = 0;
+		$ext = $this->_Config->getExt($build);
+
 		foreach ($this->_getFilesList($build) as $file) {
 			if ($this->_Scanner->isRemote($file)) {
 				return time();
 			}
+
 			$mtime = filemtime($file);
+
+			// Override if we're doing a CSS build.
+			// CSS imports need to look for dependencies
+			// in the import command as well
+			if($ext == 'css'){
+				$importTime = $this->_getImportedFilesTime($file);
+				$mtime = ($importTime > $mtime) ? $importTime : $mtime;
+			}
+
 			$time = ($mtime > $time) ? $mtime : $time;
 		}
 		return $time;
+	}
+
+	/**
+	 * Get the latest timestamp of the most recent file @imported in a CSS File
+	 *
+	 * @param $path
+	 * @return bool|int
+	 */
+	private function _getImportedFilesTime($path){
+		$directory =  dirname($path);
+		$latestTime = false;
+
+		$handle = @fopen($path, 'rb');
+		if ($handle) {
+			while(( $line= fgets($handle)) !== false){
+				if(strpos($line, '@import') !== false && strpos($line, 'http') == false){
+
+					preg_match_all('/"(.*)"/', trim( str_replace('@import', '', $line) ), $matches);
+					if(!empty($matches[1][0])){
+
+						$thisTime = filemtime(realpath($directory . DS . $matches[1][0]));
+						if($thisTime > $latestTime){
+							$latestTime = $thisTime;
+						}
+					}
+				}
+			}
+			fclose($handle);
+		}
+
+		return $latestTime;
+
 	}
 
 /**
